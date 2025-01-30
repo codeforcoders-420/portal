@@ -2,15 +2,20 @@ package config;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.edge.EdgeDriver;
+import org.openqa.selenium.edge.EdgeOptions;
 
 public class DriverManager {
     private static ThreadLocal<WebDriver> driver = new ThreadLocal<>();
 
     public static void initializeDriver() {
-        WebDriverManager.chromedriver().setup();
-        driver.set(new ChromeDriver());
-        getDriver().manage().window().maximize();
+        WebDriverManager.edgedriver().setup();
+
+        EdgeOptions options = new EdgeOptions();
+        options.addArguments("--start-maximized");
+        options.addArguments("--disable-notifications");
+
+        driver.set(new EdgeDriver(options));
     }
 
     public static WebDriver getDriver() {
@@ -24,4 +29,5 @@ public class DriverManager {
         }
     }
 }
+
 
