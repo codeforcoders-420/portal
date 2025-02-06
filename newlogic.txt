@@ -1,0 +1,78 @@
+import java.sql.*;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+public class EmployeeDataFetcher {
+
+    // SQL Server Connection String (Using Windows Authentication)
+    private static final String DB_URL = "jdbc:sqlserver://your_server_name;databaseName=your_database_name;integratedSecurity=true";
+
+    public static void main(String[] args) {
+        Map<String, Long> result = fetchEmployeeData();
+        
+        // Print the result map
+        result.forEach((key, value) -> System.out.println(key + " -> " + value));
+    }
+
+    public static Map<String, Long> fetchEmployeeData() {
+        String query = "SELECT Col1, Col2, Col3, Col4, Col5 FROM employeetable";
+
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(query);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            // Convert ResultSet to Stream and process using parallel stream
+            return processResultSet(rs);
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return Collections.emptyMap();
+        }
+    }
+
+    private static Map<String, Long> processResultSet(ResultSet rs) throws SQLException {
+        // Convert ResultSet into a Stream
+        Stream<String> stream = StreamSupport.stream(
+                Spliterators.spliteratorUnknownSize(new ResultSetIterator(rs), Spliterator.ORDERED),
+                true // Use parallel stream for large datasets
+        );
+
+        // Use Collectors to count occurrences of each concatenated key
+        return stream
+                .collect(Collectors.groupingBy(key -> key, Collectors.counting()));
+    }
+
+    // Custom Iterator to Convert ResultSet into a Streamable Iterator
+    static class ResultSetIterator implements Iterator<String> {
+        private final ResultSet rs;
+
+        public ResultSetIterator(ResultSet rs) {
+            this.rs = rs;
+        }
+
+        @Override
+        public boolean hasNext() {
+            try {
+                return rs.next();
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public String next() {
+            try {
+                return String.join("_",
+                        rs.getString("Col1"),
+                        rs.getString("Col2"),
+                        rs.getString("Col3"),
+                        rs.getString("Col4"),
+                        rs.getString("Col5"));
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+}
