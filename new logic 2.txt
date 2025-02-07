@@ -132,3 +132,85 @@ public class OptimizedExcelDatabaseComparison {
         };
     }
 }
+
+
+**************************
+
+public static List<String> readExcelData(String filePath) {
+    List<String> dataList = new ArrayList<>();
+    SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy"); // Date format only for date fields
+
+    try (FileInputStream fis = new FileInputStream(filePath);
+         Workbook workbook = new XSSFWorkbook(fis)) {
+
+        Sheet sheet = workbook.getSheetAt(0);
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) continue;
+
+            // Convert Excel row data to a unique key
+            String key = String.join("_",
+                    getCellValue(row.getCell(1)), // ProcedureCode
+                    getCellValue(row.getCell(2)), // Mod1
+                    getCellValue(row.getCell(3)), // Mod2
+                    getCellValue(row.getCell(4)), // Mod3
+                    getCellValue(row.getCell(5)), // Mod4
+                    getCellValue(row.getCell(6), dateFormat), // Effective Date (MM/DD/YYYY)
+                    getCellValue(row.getCell(7), dateFormat), // End Date (MM/DD/YYYY)
+                    convertPricingMethod(getCellValue(row.getCell(8))), // Pricing Method
+                    formatNumber(getCellValue(row.getCell(9))) // New Rate (0.0000 format)
+            );
+
+            dataList.add(key);
+        }
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+
+    return dataList;
+}
+
+
+private static String getCellValue(Cell cell) {
+    if (cell == null) return "";
+
+    switch (cell.getCellType()) {
+        case STRING:
+            return cell.getStringCellValue().trim();
+
+        case NUMERIC:
+            if (DateUtil.isCellDateFormatted(cell)) {
+                throw new IllegalArgumentException("Date cell found, but expected non-date value!");
+            }
+            return formatNumber(String.valueOf(cell.getNumericCellValue())); // Ensure 0.0000 format
+
+        case FORMULA:
+            try {
+                return formatNumber(String.valueOf(cell.getNumericCellValue())); // Handle formulas
+            } catch (IllegalStateException e) {
+                return cell.getStringCellValue().trim();
+            }
+
+        default:
+            return "";
+    }
+}
+
+private static String getCellValue(Cell cell, SimpleDateFormat dateFormat) {
+    if (cell == null) return "";
+    
+    if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+        return dateFormat.format(cell.getDateCellValue()); // Format as MM/DD/YYYY
+    }
+    return getCellValue(cell); // Fall back to general handling
+}
+
+private static String formatNumber(String value) {
+    try {
+        double num = Double.parseDouble(value.replace("$", "").trim());
+        return String.format("%.4f", num); // Ensure 0.0000 format
+    } catch (NumberFormatException e) {
+        return value.trim();
+    }
+}
+
