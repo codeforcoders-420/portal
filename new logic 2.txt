@@ -1,0 +1,134 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public class OptimizedExcelDatabaseComparison {
+
+    private static final String DB_URL = "jdbc:sqlserver://your_server_name;databaseName=your_database_name;integratedSecurity=true";
+
+    public static void main(String[] args) {
+        String excelFilePath = "ChangeFileRPAFormat.xlsx";
+        String outputFilePath = "ValidationResults.xlsx";
+
+        // Step 1: Fetch all database data into Map<String, Long>
+        Map<String, Long> databaseData = fetchEmployeeData();
+
+        // Step 2: Read Excel file and store data in List<String>
+        List<String> excelSheetData = readExcelData(excelFilePath);
+
+        // Step 3: Use Stream API to validate data against databaseData Map
+        List<String> validationResults = excelSheetData.stream()
+                .map(record -> databaseData.containsKey(record) ? "Pass" : "Fail")
+                .collect(Collectors.toList());
+
+        // Step 4: Write results back to a new Excel file
+        writeResultsToExcel(excelFilePath, outputFilePath, validationResults);
+    }
+
+    public static Map<String, Long> fetchEmployeeData() {
+        String query = "SELECT ProcedureCode, Mod1, Mod2, Mod3, Mod4, EffectiveDate, EndDate, PricingMethod, NewRate FROM employeetable";
+        Map<String, Long> resultMap = new HashMap<>();
+
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(query);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            while (rs.next()) {
+                // Create a unique key based on database data
+                String key = String.join("_",
+                        rs.getString("ProcedureCode"),
+                        rs.getString("Mod1"),
+                        rs.getString("Mod2"),
+                        rs.getString("Mod3"),
+                        rs.getString("Mod4"),
+                        rs.getString("EffectiveDate"),
+                        rs.getString("EndDate"),
+                        rs.getString("PricingMethod"),
+                        rs.getString("NewRate")
+                );
+
+                // Store it in a HashMap for fast lookup
+                resultMap.put(key, resultMap.getOrDefault(key, 0L) + 1);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return resultMap;
+    }
+
+    public static List<String> readExcelData(String filePath) {
+        List<String> dataList = new ArrayList<>();
+
+        try (FileInputStream fis = new FileInputStream(filePath);
+             Workbook workbook = new XSSFWorkbook(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                // Convert Excel row data to a unique key
+                String key = String.join("_",
+                        getCellValue(row.getCell(1)), // ProcedureCode
+                        getCellValue(row.getCell(2)), // Mod1
+                        getCellValue(row.getCell(3)), // Mod2
+                        getCellValue(row.getCell(4)), // Mod3
+                        getCellValue(row.getCell(5)), // Mod4
+                        getCellValue(row.getCell(6)), // Effective Date
+                        getCellValue(row.getCell(7)), // End Date
+                        convertPricingMethod(getCellValue(row.getCell(8))), // Pricing Method
+                        getCellValue(row.getCell(9)).replace("$", "") // New Rate (Removing $)
+                );
+
+                dataList.add(key);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return dataList;
+    }
+
+    private static void writeResultsToExcel(String inputFilePath, String outputFilePath, List<String> results) {
+        try (FileInputStream fis = new FileInputStream(inputFilePath);
+             Workbook workbook = new XSSFWorkbook(fis);
+             FileOutputStream fos = new FileOutputStream(outputFilePath)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+            int resultColIndex = headerRow.getLastCellNum();
+
+            headerRow.createCell(resultColIndex).setCellValue("Validation Result");
+
+            for (int i = 1; i < results.size() + 1; i++) {
+                Row row = sheet.getRow(i);
+                if (row != null) {
+                    row.createCell(resultColIndex).setCellValue(results.get(i - 1));
+                }
+            }
+
+            workbook.write(fos);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String getCellValue(Cell cell) {
+        return cell == null ? "" : cell.toString().trim();
+    }
+
+    private static String convertPricingMethod(String method) {
+        return switch (method) {
+            case "Allowed" -> "01";
+            case "Percent" -> "02";
+            case "By Report" -> "04";
+            default -> "00"; // Default case for unknown values
+        };
+    }
+}
