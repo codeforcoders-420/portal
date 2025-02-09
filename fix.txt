@@ -1,0 +1,51 @@
+List<String> validationResults = excelSheetData.parallelStream()
+        .map((Map<String, String> row) -> validateRow(row, databaseData))  // ✅ Explicitly define the map function
+        .collect(Collectors.toList());
+
+
+private static String validateRow(Map<String, String> row, Map<String, Double> databaseData) {
+    String pricingMethod = convertPricingMethod(row.get("Pricing Method"));
+    String newRate = formatNumber(row.get("New Rate"));
+    String oldRate = formatNumber(row.get("OldRate"));
+    String effectiveDate = row.get("Effective Date");
+    String endDate = row.get("End Date");
+    String comment = row.get("Comments");
+
+    // Generate Keys
+    String key1 = String.join("_",
+            row.get("ProcedureCode"), row.get("Mod1"), row.get("Mod2"), row.get("Mod3"), row.get("Mod4"),
+            endDate, pricingMethod
+    );
+
+    String calculatedEndDate = calculatePreviousDate(effectiveDate);
+    String key2 = String.join("_",
+            row.get("ProcedureCode"), row.get("Mod1"), row.get("Mod2"), row.get("Mod3"), row.get("Mod4"),
+            calculatedEndDate, pricingMethod
+    );
+
+    return switch (comment != null ? comment : "Manual Validation Required") { // ✅ Ensure comment is never null
+        case "New Code" -> 
+            (databaseData.containsKey(key1) && Objects.equals(databaseData.get(key1), Double.parseDouble(newRate))) 
+            ? "Pass" : "Fail";
+
+        case "Rate Change" -> 
+            (databaseData.containsKey(key1) && Objects.equals(databaseData.get(key1), Double.parseDouble(newRate)) &&
+             databaseData.containsKey(key2) && Objects.equals(databaseData.get(key2), Double.parseDouble(oldRate))) 
+            ? "Pass" : "Fail";
+
+        default -> "Manual Validation Required"; // ✅ Ensure a valid return for all cases.
+    };
+}
+
+System.out.println("Type of excelSheetData: " + excelSheetData.getClass().getName());
+System.out.println("Sample data: " + excelSheetData.get(0));
+
+
+System.out.println("Type of databaseData: " + databaseData.getClass().getName());
+System.out.println("Sample key-value: " + databaseData.entrySet().stream().findFirst());
+
+String testResult = validateRow(excelSheetData.get(0), databaseData);
+System.out.println("Test row validation: " + testResult);
+
+
+
