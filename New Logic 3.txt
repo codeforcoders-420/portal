@@ -1,0 +1,176 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.sql.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+public class FastExcelDatabaseComparison {
+
+    private static final String DB_URL = "jdbc:sqlserver://your_server_name;databaseName=your_database_name;integratedSecurity=true";
+
+    public static void main(String[] args) {
+        String excelFilePath = "ChangeFileRPAFormat.xlsx";
+        String outputFilePath = "ValidationResults.xlsx";
+
+        // Step 1: Fetch all database records into a Map<String, Double> for fast lookup
+        Map<String, Double> databaseData = fetchDatabaseData();
+
+        // Step 2: Read Excel file and store data in a list
+        List<Map<String, String>> excelSheetData = readExcelData(excelFilePath);
+
+        // Step 3: Validate using Parallel Streams
+        List<String> validationResults = excelSheetData.parallelStream()
+                .map(row -> validateRow(row, databaseData))
+                .collect(Collectors.toList());
+
+        // Step 4: Write results back to Excel
+        writeResultsToExcel(excelFilePath, outputFilePath, validationResults);
+    }
+
+    /** Fetches all database records and stores them in a Map for fast lookup */
+    public static Map<String, Double> fetchDatabaseData() {
+        String query = "SELECT ProcedureCode, Mod1, Mod2, Mod3, Mod4, EndDate, PricingMethod, Rate FROM employeetable";
+        Map<String, Double> resultMap = new ConcurrentHashMap<>();
+
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(query);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            while (rs.next()) {
+                String key = String.join("_",
+                        rs.getString("ProcedureCode"),
+                        rs.getString("Mod1"),
+                        rs.getString("Mod2"),
+                        rs.getString("Mod3"),
+                        rs.getString("Mod4"),
+                        rs.getString("EndDate"),
+                        rs.getString("PricingMethod")
+                );
+
+                double rate = rs.getDouble("Rate");
+                resultMap.put(key, rate);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return resultMap;
+    }
+
+    /** Reads Excel file and converts rows into List of Map<String, String> */
+    public static List<Map<String, String>> readExcelData(String filePath) {
+        List<Map<String, String>> dataList = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+
+        try (FileInputStream fis = new FileInputStream(filePath);
+             Workbook workbook = new XSSFWorkbook(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+            List<String> headers = new ArrayList<>();
+            for (Cell cell : headerRow) headers.add(cell.getStringCellValue());
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                Map<String, String> rowData = new HashMap<>();
+                for (int j = 0; j < headers.size(); j++) {
+                    rowData.put(headers.get(j), getCellValue(row.getCell(j), dateFormat));
+                }
+                dataList.add(rowData);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return dataList;
+    }
+
+    /** Validates a row from Excel against the database data */
+    private static String validateRow(Map<String, String> row, Map<String, Double> databaseData) {
+        String pricingMethod = convertPricingMethod(row.get("Pricing Method"));
+        String newRate = formatNumber(row.get("New Rate"));
+        String oldRate = formatNumber(row.get("OldRate"));
+        String effectiveDate = row.get("Effective Date");
+        String endDate = row.get("End Date");
+        String comment = row.get("Comments");
+
+        String key1 = String.join("_",
+                row.get("ProcedureCode"), row.get("Mod1"), row.get("Mod2"), row.get("Mod3"), row.get("Mod4"),
+                endDate, pricingMethod
+        );
+
+        String calculatedEndDate = calculatePreviousDate(effectiveDate);
+        String key2 = String.join("_",
+                row.get("ProcedureCode"), row.get("Mod1"), row.get("Mod2"), row.get("Mod3"), row.get("Mod4"),
+                calculatedEndDate, pricingMethod
+        );
+
+        return switch (comment) {
+            case "New Code" -> databaseData.containsKey(key1) && databaseData.get(key1) == Double.parseDouble(newRate) ? "Pass" : "Fail";
+            case "Rate Change" -> databaseData.containsKey(key1) && databaseData.get(key1) == Double.parseDouble(newRate)
+                                && databaseData.containsKey(key2) && databaseData.get(key2) == Double.parseDouble(oldRate) ? "Pass" : "Fail";
+            default -> "Manual Validation Required";
+        };
+    }
+
+    private static void writeResultsToExcel(String inputFilePath, String outputFilePath, List<String> results) {
+        try (FileInputStream fis = new FileInputStream(inputFilePath);
+             Workbook workbook = new XSSFWorkbook(fis);
+             FileOutputStream fos = new FileOutputStream(outputFilePath)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+            int resultColIndex = headerRow.getLastCellNum();
+            headerRow.createCell(resultColIndex).setCellValue("Validation Result");
+
+            for (int i = 1; i < results.size() + 1; i++) {
+                Row row = sheet.getRow(i);
+                if (row != null) {
+                    row.createCell(resultColIndex).setCellValue(results.get(i - 1));
+                }
+            }
+
+            workbook.write(fos);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String getCellValue(Cell cell, SimpleDateFormat dateFormat) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue().trim();
+            case NUMERIC -> DateUtil.isCellDateFormatted(cell) ? dateFormat.format(cell.getDateCellValue()) : formatNumber(String.valueOf(cell.getNumericCellValue()));
+            default -> "";
+        };
+    }
+
+    private static String formatNumber(String value) {
+        return String.format("%.4f", Double.parseDouble(value.replace("$", "").trim()));
+    }
+
+    private static String convertPricingMethod(String method) {
+        return switch (method) {
+            case "Allowed" -> "01";
+            case "Percent" -> "02";
+            case "By Report" -> "04";
+            default -> "00";
+        };
+    }
+
+    private static String calculatePreviousDate(String effectiveDate) {
+        try {
+            SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+            Calendar cal = Calendar.getInstance();
+            cal.setTime(dateFormat.parse(effectiveDate));
+            cal.add(Calendar.DATE, -1);
+            return dateFormat.format(cal.getTime());
+        } catch (Exception e) {
+            return effectiveDate;
+        }
+    }
+}
