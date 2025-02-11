@@ -1,0 +1,124 @@
+<!-- Modal Structure -->
+<div id="validate-modal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <h3>Validation Form</h3>
+        
+        <!-- Input Field -->
+        <label for="input-field">Enter File Name:</label>
+        <input type="text" id="input-field" placeholder="Enter value here" />
+
+        <!-- Dropdown for Selection -->
+        <label for="validation-type">Select Validation Type:</label>
+        <select id="validation-type">
+            <option value="pre">Pre-Validation</option>
+            <option value="post">Post-Validation</option>
+        </select>
+
+        <!-- Submit Button -->
+        <button id="run-validation" onclick="submitValidation()">Run Validation</button>
+    </div>
+</div>
+
+
+/* Modal Styling */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+    background-color: white;
+    margin: 15% auto;
+    padding: 20px;
+    border-radius: 8px;
+    width: 30%;
+    text-align: center;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.close {
+    position: absolute;
+    right: 10px;
+    top: 5px;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+
+<button type="button" id="validate-btn" onclick="openModal()">Validate</button>
+
+
+// Function to open modal
+function openModal() {
+    document.getElementById("validate-modal").style.display = "block";
+}
+
+// Function to close modal
+function closeModal() {
+    document.getElementById("validate-modal").style.display = "none";
+}
+
+// Function to collect user input and send it to backend
+function submitValidation() {
+    const fileName = document.getElementById("input-field").value;
+    const validationType = document.getElementById("validation-type").value;
+
+    if (!fileName) {
+        alert("Please enter a file name.");
+        return;
+    }
+
+    // Prepare the data payload
+    const requestData = {
+        fileName: fileName,
+        validationType: validationType
+    };
+
+    // Send data to backend via Fetch API
+    fetch("/validate-file", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert("Validation started successfully: " + data.message);
+        closeModal(); // Close modal after submission
+    })
+    .catch(error => {
+        console.error("Error:", error);
+        alert("Error in validation process");
+    });
+}
+
+
+
+@RestController
+@RequestMapping("/validate-file")
+public class ValidationController {
+
+    @PostMapping
+    public ResponseEntity<Map<String, String>> validateFile(@RequestBody Map<String, String> requestData) {
+        String fileName = requestData.get("fileName");
+        String validationType = requestData.get("validationType");
+
+        // Process validation logic (Pre/Post based on user selection)
+        System.out.println("Received Validation Request - File: " + fileName + ", Type: " + validationType);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Validation started for " + fileName + " as " + validationType);
+        return ResponseEntity.ok(response);
+    }
+}
+
+
+
